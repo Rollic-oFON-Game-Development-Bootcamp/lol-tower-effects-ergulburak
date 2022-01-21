@@ -6,191 +6,220 @@ using UnityEngine;
 
 public enum TowerStates
 {
-    SeekTarget,
-    AttackMinion,
-    AttackEnemy
+  SeekTarget,
+  AttackMinion,
+  AttackEnemy
 }
 
 public class LolTower : MonoBehaviour
 {
-    [SerializeField] private Transform towerTop;
+  [SerializeField] private Transform towerTop;
+  [SerializeField] private Transform muzzle;
+  [SerializeField] private FireballMovement fireballBlueprint;
 
-    [ReadOnly] public TowerStates currentState;
 
-    private Minion currentTargetMinion;
-    private TeamPlayer currentTargetPlayer;
+  [ReadOnly] public TowerStates currentState;
 
-    private float towerRange => SettingsManager.GameSettings.TowerRange;
 
-    private static Collider[] overlapResults = new Collider[100];
+  private Minion currentTargetMinion;
+  private TeamPlayer currentTargetPlayer;
 
-    private void OnDrawGizmos()
+  private float towerRange => SettingsManager.GameSettings.TowerRange;
+
+  private static Collider[] overlapResults = new Collider[100];
+
+  private void OnDrawGizmos()
+  {
+    var col = Gizmos.color;
+
+    Gizmos.color = Color.blue;
+    Gizmos.DrawWireSphere(transform.position, towerRange);
+
+    if (currentTargetMinion != null)
     {
-        var col = Gizmos.color;
-
-        Gizmos.color = Color.blue;
-        Gizmos.DrawWireSphere(transform.position, towerRange);
-
-        if (currentTargetMinion != null)
-        {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawLine(towerTop.position, currentTargetMinion.transform.position);
-        }
-
-        if (currentTargetPlayer != null)
-        {
-            Gizmos.color = Color.red;
-            Gizmos.DrawLine(towerTop.position, currentTargetPlayer.transform.position);
-        }
-
-        Gizmos.color = col;
+      Gizmos.color = Color.yellow;
+      Gizmos.DrawLine(towerTop.position, currentTargetMinion.transform.position);
     }
 
-    // Start is called before the first frame update
-    void Start()
+    if (currentTargetPlayer != null)
     {
-        StartCoroutine(RunMachine());
+      Gizmos.color = Color.red;
+      Gizmos.DrawLine(towerTop.position, currentTargetPlayer.transform.position);
     }
 
-    private IEnumerator GetStateRoutine()
+    Gizmos.color = col;
+  }
+
+  // Start is called before the first frame update
+  void Start()
+  {
+    StartCoroutine(RunMachine());
+  }
+
+  private IEnumerator GetStateRoutine()
+  {
+    IEnumerator result = null;
+    switch (currentState)
     {
-        IEnumerator result = null;
-        switch (currentState)
+      case TowerStates.SeekTarget:
+        result = SeekTarget();
+        break;
+      case TowerStates.AttackMinion:
+        result = AttackMinion();
+        break;
+      case TowerStates.AttackEnemy:
+        result = AttackEnemy();
+        break;
+      default:
+        break;
+    }
+
+    return result;
+  }
+
+  private IEnumerator RunMachine()
+  {
+    while (true)
+    {
+      var stateRoutine = GetStateRoutine();
+
+      yield return stateRoutine;
+    }
+  }
+
+  private IEnumerator SeekTarget()
+  {
+    //State Enter
+
+    while (currentState == TowerStates.SeekTarget)
+    {
+      //State Loop
+      var hitCount =
+        Physics.OverlapSphereNonAlloc(transform.position, towerRange, overlapResults, LayerMask.GetMask("Player"));
+      var results = overlapResults.Take(hitCount);
+
+      var minions = results.Where(o => o.CompareTag("Minion"))
+        .Select(o => o.attachedRigidbody.GetComponent<Minion>());
+
+      if (minions.Any(o => !o.IsDead))
+      {
+        var minion = minions.First(o => !o.IsDead);
+        //currentTarget = results.First(o => o.CompareTag("Minion")).transform;
+        currentTargetMinion = minion;
+        currentState = TowerStates.AttackMinion;
+      }
+      else if (results.Any(o => o.CompareTag("TeamPlayer")))
+      {
+        currentTargetPlayer =
+          results.First(o => o.CompareTag("TeamPlayer")).attachedRigidbody.GetComponent<TeamPlayer>();
+        currentState = TowerStates.AttackEnemy;
+      }
+
+      yield return null;
+    }
+    //State Exit
+  }
+
+  private IEnumerator AttackMinion()
+  {
+    //State Enter
+    float timer = 0f;
+    float attackCooldown = 1f;
+    while (currentState == TowerStates.AttackMinion)
+    {
+      timer += Time.deltaTime;
+
+      if (timer >= attackCooldown)
+      {
+        if (currentTargetMinion == null)
         {
-            case TowerStates.SeekTarget:
-                result = SeekTarget();
-                break;
-            case TowerStates.AttackMinion:
-                result = AttackMinion();
-                break;
-            case TowerStates.AttackEnemy:
-                result = AttackEnemy();
-                break;
-            default:
-                break;
+          currentTargetMinion = null;
+          currentState = TowerStates.SeekTarget;
+          continue;
         }
-        return result;
-    }
-
-    private IEnumerator RunMachine()
-    {
-        while (true)
+        else
         {
-            var stateRoutine = GetStateRoutine();
-
-            yield return stateRoutine;
+          FireFireball(currentTargetMinion.transform);
         }
-    }
 
-    private IEnumerator SeekTarget()
-    {
-        //State Enter
+        timer -= attackCooldown;
+      }
 
-        while (currentState == TowerStates.SeekTarget)
+      if (currentTargetPlayer != null)
+      {
+        var sqrDistanceToTarget = (currentTargetMinion.transform.position - transform.position).sqrMagnitude;
+        if (sqrDistanceToTarget > towerRange * towerRange)
         {
-            //State Loop
-            var hitCount = Physics.OverlapSphereNonAlloc(transform.position, towerRange, overlapResults, LayerMask.GetMask("Player"));
-            var results = overlapResults.Take(hitCount);
-
-            var minions = results.Where(o => o.CompareTag("Minion"))
-                .Select(o => o.attachedRigidbody.GetComponent<Minion>());
-            
-            if (minions.Any(o => !o.IsDead))
-            {
-                var minion = minions.First(o => !o.IsDead);
-                //currentTarget = results.First(o => o.CompareTag("Minion")).transform;
-                currentTargetMinion = minion;
-                currentState = TowerStates.AttackMinion;
-            }
-            else if (results.Any(o => o.CompareTag("TeamPlayer")))
-            {
-                currentTargetPlayer = results.First(o => o.CompareTag("TeamPlayer")).attachedRigidbody.GetComponent<TeamPlayer>();
-                currentState = TowerStates.AttackEnemy;
-            }
-
-            yield return null;
+          currentTargetMinion = null;
+          currentState = TowerStates.SeekTarget;
+          continue;
         }
-        //State Exit
+      }
 
+      //State Loop
+      yield return null;
     }
+    //State Exit
+  }
 
-    private IEnumerator AttackMinion()
+  private IEnumerator AttackEnemy()
+  {
+    //State Enter
+    float timer = 0f;
+    float attackCooldown = 1f;
+    while (currentState == TowerStates.AttackEnemy)
     {
-        //State Enter
-        float timer = 0f;
-        float attackCooldown = 1f;
-        while (currentState == TowerStates.AttackMinion)
+      //State Loop
+      timer += Time.deltaTime;
+
+      if (timer >= attackCooldown)
+      {
+        if (currentTargetPlayer == null)
         {
-            timer += Time.deltaTime;
-
-            if (timer >= attackCooldown)
-            {
-                if (currentTargetMinion.GetHit())
-                {
-                    currentTargetMinion = null;
-                    currentState = TowerStates.SeekTarget;
-                    continue;
-                }
-                timer -= attackCooldown;
-            }
-
-            var sqrDistanceToTarget = (currentTargetMinion.transform.position - transform.position).sqrMagnitude;
-            if (sqrDistanceToTarget > towerRange * towerRange)
-            {
-                currentTargetMinion = null;
-                currentState = TowerStates.SeekTarget;
-                continue;
-            }
-
-            //State Loop
-            yield return null;
+          currentTargetPlayer = null;
+          currentState = TowerStates.SeekTarget;
+          continue;
         }
-        //State Exit
+        else
+        {
+          FireFireball(currentTargetPlayer.transform);
+        }
 
+        timer -= attackCooldown;
+      }
+
+      if (currentTargetPlayer != null)
+      {
+        var sqrDistanceToTarget = (currentTargetPlayer.transform.position - transform.position).sqrMagnitude;
+        if (sqrDistanceToTarget > towerRange * towerRange)
+        {
+          currentTargetPlayer = null;
+          currentState = TowerStates.SeekTarget;
+          continue;
+        }
+      }
+
+      yield return null;
     }
+    //State Exit
+  }
 
-    private IEnumerator AttackEnemy()
+  private void FireFireball(Transform target)
+  {
+    var fireball = Instantiate(fireballBlueprint);
+
+    fireball.transform.position = muzzle.position;
+
+    fireball.Target = target;
+  }
+
+  public void Complain(TeamPlayer teamPlayer)
+  {
+    if (currentState == TowerStates.AttackMinion)
     {
-        //State Enter
-        float timer = 0f;
-        float attackCooldown = 1f;
-        while (currentState == TowerStates.AttackEnemy)
-        {
-            //State Loop
-            timer += Time.deltaTime;
-
-            if (timer >= attackCooldown)
-            {
-                if (currentTargetPlayer.GetHit())
-                {
-                    currentTargetPlayer = null;
-                    currentState = TowerStates.SeekTarget;
-                    continue;
-                }
-                timer -= attackCooldown;
-            }
-
-            var sqrDistanceToTarget = (currentTargetPlayer.transform.position - transform.position).sqrMagnitude;
-            if (sqrDistanceToTarget > towerRange * towerRange)
-            {
-                currentTargetPlayer = null;
-                currentState = TowerStates.SeekTarget;
-                continue;
-            }
-
-            yield return null;
-        }
-        //State Exit
-
+      currentTargetMinion = null;
+      currentTargetPlayer = teamPlayer;
+      currentState = TowerStates.AttackEnemy;
     }
-
-    public void Complain(TeamPlayer teamPlayer)
-    {
-        if (currentState == TowerStates.AttackMinion)
-        {
-            currentTargetMinion = null;
-            currentTargetPlayer = teamPlayer;
-            currentState = TowerStates.AttackEnemy;
-        }
-    }
+  }
 }

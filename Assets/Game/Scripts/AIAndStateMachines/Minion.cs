@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -47,5 +48,14 @@ public class Minion : MonoBehaviour
     private void Die()
     {
         Destroy(gameObject);
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+      if (other.CompareTag("Fireball"))
+      {
+        Destroy(other.attachedRigidbody.gameObject);
+        GetHit();
+      }
     }
 }
